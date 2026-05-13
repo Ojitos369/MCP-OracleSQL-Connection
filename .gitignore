@@ -1,0 +1,7 @@
+.venv/
+.env
+logs/
+__pycache__/
+*.pyc
+docs/
+prompt_documentar.md
