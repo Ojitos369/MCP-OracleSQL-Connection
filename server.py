@@ -561,6 +561,42 @@ def ping() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _startup_check() -> None:
+    """Print DB credentials and run a connection test at startup."""
+    host_raw = os.environ.get("DB_HOST_PROD_VIEW", "").strip()
+    service  = os.environ.get("DB_SCHEME_PROD_VIEW", "").strip()
+    user     = os.environ.get("DB_USER_PROD_VIEW", "").strip()
+    password = os.environ.get("DB_PASSWORD_PROD_VIEW", "").strip()
+
+    masked_pw = (password[:2] + "*" * (len(password) - 2)) if len(password) > 2 else "***"
+    print("=" * 60)
+    print("  DB_HOST_PROD_VIEW  :", host_raw  or "(vacío)")
+    print("  DB_SCHEME_PROD_VIEW:", service   or "(vacío)")
+    print("  DB_USER_PROD_VIEW  :", user      or "(vacío)")
+    print("  DB_PASSWORD_PROD_VIEW:", masked_pw)
+    print("  DB_SCHEMA          :", SCHEMA    or "(sin prefijo)")
+    print("=" * 60)
+
+    log.info(
+        "startup | host=%s service=%s user=%s schema=%s",
+        host_raw, service, user, SCHEMA or "(none)",
+    )
+
+    print("Probando conexión a la base de datos...")
+    try:
+        with _connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT SYSTIMESTAMP FROM dual")
+            (db_time,) = cur.fetchone()
+        print(f"  Conexión OK — db_time={db_time}  oracledb={oracledb.__version__}")
+        log.info("startup connection test OK | db_time=%s", db_time)
+    except (oracledb.Error, OSError) as exc:
+        msg = str(exc).replace("\n", " ")
+        print(f"  Conexión FALLIDA — {msg}")
+        log.error("startup connection test FAIL | %s", msg)
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     if AUTH_REQUIRED:
         modes = []
@@ -570,6 +606,8 @@ if __name__ == "__main__":
         log.info("auth: ENABLED — %s", " + ".join(modes))
     else:
         log.warning("auth: DISABLED — set MCP_AUTH_TOKEN and/or OAUTH_CLIENT_ID to require auth")
+
+    _startup_check()
     log.info("starting consulta_db MCP on %s:%d (logs -> %s)", HOST, PORT, LOG_FILE)
 
     app = mcp.streamable_http_app()
