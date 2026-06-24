@@ -19,6 +19,7 @@ import os
 import re
 import hmac
 import math
+import uuid
 import logging
 import contextlib
 from logging.handlers import RotatingFileHandler
@@ -328,6 +329,66 @@ def run_query(sql: str, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> di
         return result
     except (oracledb.Error, OSError) as e:
         log.warning("run_query FAIL | %s | sql=%s", str(e).replace("\n", " "), _one_line(stmt))
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def explain_plan(sql: str, format: str = "TYPICAL") -> dict:
+    """Mostrar el PLAN DE EJECUCION que Oracle elegiria para un SELECT (sin correrlo).
+
+    Usa `EXPLAIN PLAN FOR <sql>` + `DBMS_XPLAN.DISPLAY`. NO ejecuta la query: solo
+    pide al optimizador el plan estimado (accesos a tabla full vs index, orden y
+    metodo de joins, costo y filas estimadas). Util para diagnosticar queries lentas
+    antes de optimizar.
+
+    Mismo manejo de esquema que `run_query`: si `DB_SCHEMA` esta seteado, califica
+    las tablas/vistas (p. ej. `%sx_table`).
+
+    Args:
+        sql: el SELECT a analizar (sin punto y coma final). Solo SELECT.
+        format: formato de DBMS_XPLAN.DISPLAY: 'BASIC', 'TYPICAL' (default),
+            'ALL', 'ADVANCED'. Mas detalle = mas verboso.
+
+    Devuelve: {plan: texto del plan, plan_lines: [str], sql, format}. El plan es
+    ESTIMADO; para el plan real (filas/buffers efectivos) hay que ejecutar la query
+    con GATHER_PLAN_STATISTICS y DBMS_XPLAN.DISPLAY_CURSOR.
+    """ % SCHEMA_PREFIX
+    stmt = sql.strip().rstrip(";").strip()
+    if not stmt:
+        return {"error": "empty query"}
+    lowered = stmt.lstrip("(").lower()
+    if not lowered.startswith("select"):
+        log.warning("explain_plan REJECTED (not a SELECT) | sql=%s", _one_line(stmt))
+        return {"error": "only SELECT queries are allowed"}
+    if _FORBIDDEN.search(stmt):
+        log.warning("explain_plan REJECTED (forbidden keyword) | sql=%s", _one_line(stmt))
+        return {"error": "query contains a forbidden (write/DDL) keyword"}
+    fmt = (format or "TYPICAL").strip().upper()
+    if fmt not in ("BASIC", "TYPICAL", "ALL", "ADVANCED"):
+        return {"error": "format must be one of BASIC, TYPICAL, ALL, ADVANCED"}
+    # statement_id unico (inline, EXPLAIN PLAN no admite bind aqui) -> alfanumerico seguro.
+    sid = "mcp_" + uuid.uuid4().hex[:24]
+    log.info("explain_plan | format=%s | sql=%s", fmt, _one_line(stmt))
+    try:
+        with _connection() as conn:
+            cur = conn.cursor()
+            # EXPLAIN PLAN inserta en PLAN_TABLE; cerramos sin commit -> se descarta.
+            cur.execute(f"EXPLAIN PLAN SET STATEMENT_ID = '{sid}' FOR {stmt}")
+            cur.execute(
+                "SELECT plan_table_output FROM "
+                "TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :sid, :fmt))",
+                {"sid": sid, "fmt": fmt},
+            )
+            lines = [r[0] for r in cur.fetchall()]
+        log.info("explain_plan OK | lines=%d", len(lines))
+        return {
+            "sql": stmt,
+            "format": fmt,
+            "plan_lines": lines,
+            "plan": "\n".join(lines),
+        }
+    except (oracledb.Error, OSError) as e:
+        log.warning("explain_plan FAIL | %s | sql=%s", str(e).replace("\n", " "), _one_line(stmt))
         return {"error": str(e)}
 
 
