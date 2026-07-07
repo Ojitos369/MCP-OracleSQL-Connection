@@ -39,8 +39,14 @@ Sin credencial válida → `401` + `WWW-Authenticate: Bearer resource_metadata="
 | Tool | Descripción |
 |------|-------------|
 | `ping()` | Comprueba conectividad. |
-| `describe_table(table_name)` | Columnas (tipo, longitud, nullable). |
+| `describe_table(table_name)` | Columnas (tipo, longitud, nullable). Sigue sinónimos al objeto real. |
 | `list_tables(name_like=None, page=1, page_size=100)` | Tablas y vistas del usuario, paginado. |
+| `list_objects(object_type=None, name_like=None, page=1, page_size=100)` | TODOS los objetos del esquema: TRIGGER, PROCEDURE, FUNCTION, PACKAGE, SYNONYM, SEQUENCE, VIEW, TABLE… |
+| `used_by(object_name, direction="used_by", page=1, page_size=100)` | Dependencias: quién usa una tabla/vista/función (`used_by`) o qué usa un objeto (`uses`). Vía `all_dependencies`; resuelve sinónimos. |
+| `list_triggers(table_name=None, name_like=None, page=1, page_size=100)` | Triggers del esquema; filtrable por tabla. Evento, tipo, estado. |
+| `get_object_source(object_name, object_type=None, page=1, page_size=500)` | Código fuente: PL/SQL (paginado por líneas), cuerpo de triggers, SELECT de vistas, DDL de tablas (si hay privilegios). Resuelve sinónimos. |
+| `describe_procedure(object_name, package_name=None)` | Firma (argumentos, tipos, IN/OUT) de un procedimiento o función; posición 0 = retorno. |
+| `explain_plan(sql, format="TYPICAL")` | Plan de ejecución estimado de un `SELECT` sin correrlo. |
 | `run_query(sql, page=1, page_size=100)` | Ejecuta solo `SELECT` (sin `WITH`), paginado; bloquea DML y DDL. |
 | `search_docs(query="", limit=20)` | Busca en la documentación del esquema (`docs/`); vacío = catálogo. Empieza aquí para saber qué tabla usar. |
 | `get_table_doc(table_name)` | Markdown documentado de un objeto (acepta `"INDEX"`). |
